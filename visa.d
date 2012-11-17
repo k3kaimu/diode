@@ -248,6 +248,22 @@ enum State : short
     unknown = VI_STATE_UNKNOWN,
 }
 
+
+enum Flush : ushort
+{
+    onAccess = VI_FLUSH_ON_ACCESS,
+    disable = VI_FLUSH_DISABLE,
+}
+
+
+enum Lock : ViAccessMode
+{
+    noLock  = VI_NO_LOCK,
+    exclusiveLock = VI_EXCLUSIVE_LOCK,
+    sharedLock = VI_SHARED_LOCK,
+}
+
+
 ///ViSessionを管理する構造体です。各デバイスはこのSessionを内部に持つことになります。参照カウンタ方式により管理しています。
 struct Session{
 private:
@@ -294,7 +310,7 @@ public:
 }
 
 
-///GPIBデバイスを操作するための構造体です
+///デバイスを操作するための構造体です
 mixin template DeviceCommon(){
 private:
     Session _session;
@@ -334,37 +350,8 @@ public:
         assert(stat >= VI_SUCCESS);
         return cnt > 0;
     }
-    
-    
-    @property
-    void attribute(AttrType)(AttrType val){
-        auto stat = viSetAttribute(_session.handle,  val[0], val[1]);
-        assert(stat >= VI_SUCCESS);
-    }
-    
-    
-    @property
-    auto attribute(alias f)(){
-        static if(is(f == struct)){
-            enum v = staticFilter!(isStatic, staticMap!(getMember!(f), __traits(allMembers, f)))[0];
-            alias typeof(v[1]) AttributeType;
-            AttributeType t;
-            auto stat = veGetAttribute(_session.handle, v[0], cast(void*)(&t));
-            return t;
-        }else{
-            alias typeof(ReturnType!(f).init[1]) AttributeType;
-            AttributeType t;
-            auto stat = viGetAttribute(_session.handle, f(AttributeType.init)[0], cast(void*)(&t));
-            assert(stat >= VI_SUCCESS);
-            return t;
-        }
-    }
 }
 
-
-struct GPIBDevice{
-    mixin DeviceCommon!();
-}
 
 
 struct Serial
@@ -442,6 +429,40 @@ struct Serial
     mixin(genAttr!(Serial.Wire)("wireMode", "VI_ATTR_ASRL_WIRE_MODE"));
     mixin(genAttr!char("xoffChar", "VI_ATTR_ASRL_XOFF_CHAR"));
     mixin(genAttr!char("xonChar", "VI_ATTR_ASRL_XON_CHAR"));
+    
+    mixin(genAttrTF("dmaAllowEn", "VI_ATTR_DMA_ALLOW_EN"));
+    mixin(genAttrReadOnly!ViEventType("eventType", "VI_ATTR_EVENT_TYPE"));
+    mixin(genAttrTF("fileAppendEn", "VI_ATTR_FILE_APPEND_EN"));
+    mixin(genAttrReadOnly!ViString("intfName", "VI_ATTR_INTF_INST_NAME"));
+    mixin(genAttrReadOnly!ushort("intfNum", "VI_ATTR_INTF_NUM"));
+    mixin(genAttrReadOnly!ushort("intfType", "VI_ATTR_DMA_ALLOW_EN"));
+    
+    enum Protocol : ushort
+    {
+        normal = VI_PROT_NORMAL,
+        usbTmcVendor = VI_PROT_USBTMC_VENDOR,
+    }
+    
+    mixin(genAttr!Protocol("protocol", "VI_ATTR_IO_PROT"));
+    mixin(genAttr!uint("maxQueueLength", "VI_ATTR_MAX_QUEUE_LENGTH", q{assert(value > 0);}));
+    mixin(genAttr!Flush("rdBufOpMode", "VI_ATTR_RD_BUF_OPER_MODE"));
+    mixin(genAttrReadOnly!uint("rdBufSize", "VI_ATTR_RD_BUF_SIZE"));
+    mixin(genAttrReadOnly!ViSession("rmSession", "VI_ATTR_RM_SESSION"));
+    mixin(genAttrReadOnly!ViString("rClass", "VI_ATTR_RSRC_CLASS"));
+    mixin(genAttrReadOnly!ViVersion("rVersion", "VI_ATTR_RSRC_IMPL_VERSION"));
+    mixin(genAttrReadOnly!Lock("rLockState", "VI_ATTR_RSRC_LOCK_STATE"));
+    mixin(genAttrReadOnly!ushort("rManufacturerID", "VI_ATTR_RSRC_MANF_ID", q{assert(value <= 0x3FFF);}));
+    mixin(genAttrReadOnly!ViString("rManufacturerName", "VI_ATTR_RSRC_MANF_NAME"));
+    mixin(genAttrReadOnly!ViString("rName", "VI_ATTR_RSRC_NAME"));
+    mixin(genAttrReadOnly!ViVersion("rSpecVersion", "VI_ATTR_RSRC_SPEC_VERSION"));
+    mixin(genAttrTF("sendEndEn", "VI_ATTR_SEND_END_EN"));
+    mixin(genAttrTF("suppressEndEn", "VI_ATTR_SUPPRESS_END_EN"));
+    mixin(genAttr!char("termChar", "VI_ATTR_TERMCHAR"));
+    mixin(genAttrTF("termCharEn", "VI_ATTR_TERMCHAR_EN"));
+    mixin(genAttr!uint("timeOut", "VI_ATTR_TMO_VALUE"));    //0xFFFFFFFFでinfinite
+    //mixin(genAttr!ViAddr("userData", "VI_ATTR_USER_DATA"));
+    mixin(genAttr!ushort("wrBufOpMode", "VI_ATTR_WR_BUF_OPER_MODE"));
+    mixin(genAttrReadOnly!uint("wrBufSize", "VI_ATTR_WR_BUF_SIZE"));
 }
 unittest
 {

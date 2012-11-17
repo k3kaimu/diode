@@ -123,6 +123,8 @@ alias ViUInt32      ViAttr;
 
 alias const(ViChar)* ViConstString;
 
+alias ViUInt32 VIEventType;
+
 /*- Completion and Error Codes ----------------------------------------------*/
 
 enum VI_SUCCESS = 0;
