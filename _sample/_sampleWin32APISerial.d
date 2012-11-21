@@ -11,8 +11,14 @@ pragma(lib, "diode");
 pragma(lib, "dio");
 pragma(lib, "win32");
 
-void main(){
+void main()
+{
     auto dev = comPortOpen("COM6");
+    
+    with(dev){
+        dev.baudRate = 9600;
+        dev.timeout = dur!"msecs"(100);
+    }
     
     auto devRng = dev.buffered().ranged();
     auto devPort = dev.buffered().textPort();
