@@ -360,7 +360,7 @@ struct Serial
     
     mixin(genAttrTF("allowTransmit", "VI_ATTR_ASRL_ALLOW_TRANSMIT"));
     mixin(genAttrReadOnly!uint("availNum", "VI_ATTR_ASRL_AVAIL_NUM"));
-    mixin(genAttr!uint("baud", "VI_ATTR_ASRL_BAUD"));
+    mixin(genAttr!uint("baudRate", "VI_ATTR_ASRL_BAUD"));
     mixin(genAttr!short("breakLen", "VI_ATTR_ASRL_BREAK_LEN", q{assert(1 <= value && value <= 500);}));
     mixin(genAttr!State("breakState", "VI_ATTR_ASRL_BREAK_STATE"));
     mixin(genAttrReadOnly!State("ctsState", "VI_ATTR_ASRL_CTS_STATE"));
@@ -459,7 +459,8 @@ struct Serial
     mixin(genAttrTF("suppressEndEn", "VI_ATTR_SUPPRESS_END_EN"));
     mixin(genAttr!char("termChar", "VI_ATTR_TERMCHAR"));
     mixin(genAttrTF("termCharEn", "VI_ATTR_TERMCHAR_EN"));
-    mixin(genAttr!uint("timeOut", "VI_ATTR_TMO_VALUE"));    //0xFFFFFFFFでinfinite
+    mixin(genAttr!uint("timeout", "VI_ATTR_TMO_VALUE"));    //0xFFFFFFFFでinfinite
+    
     //mixin(genAttr!ViAddr("userData", "VI_ATTR_USER_DATA"));
     mixin(genAttr!ushort("wrBufOpMode", "VI_ATTR_WR_BUF_OPER_MODE"));
     mixin(genAttrReadOnly!uint("wrBufSize", "VI_ATTR_WR_BUF_SIZE"));

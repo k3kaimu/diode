@@ -5,8 +5,10 @@ module diode.windows;
 
 import std.conv                 : to;
 import std.c.windows.windows;
-import std.string               : toStringz;
 import std.exception            : enforce;
+import std.string               : toStringz, toUpperInPlace;
+
+import core.time;
 //import std.c.windows.windows;
 import win32.all : DCB, CreateFile, GetCommState, CBR_9600, NOPARITY, ONESTOPBIT, COMMTIMEOUTS, SetCommState, GetCommTimeouts, SetCommTimeouts;
 
@@ -36,7 +38,6 @@ import win32.all : DCB, CreateFile, GetCommState, CBR_9600, NOPARITY, ONESTOPBIT
             GetCommState(_handle, _dcb);
             
             with(*_dcb){
-                DCBlength = typeof(*_dcb).sizeof;
                 BaudRate = 9600;
                 fBinary = true;
                 fParity = false;
@@ -57,10 +58,10 @@ import win32.all : DCB, CreateFile, GetCommState, CBR_9600, NOPARITY, ONESTOPBIT
             with(*_cto)
             {
                 ReadIntervalTimeout         = 10;		// タイムアウト：0.01秒	　
-                ReadTotalTimeoutMultiplier  = 0;
+                ReadTotalTimeoutMultiplier  = 2;
                 ReadTotalTimeoutConstant    = 10;
-                WriteTotalTimeoutMultiplier = 0;
-                WriteTotalTimeoutConstant   = 0;
+                WriteTotalTimeoutMultiplier = 2;
+                WriteTotalTimeoutConstant   = 10;
             }
             
             SetCommTimeouts(_handle, _cto);
@@ -100,10 +101,10 @@ import win32.all : DCB, CreateFile, GetCommState, CBR_9600, NOPARITY, ONESTOPBIT
         }
         
         
-        ///ボーレート
+        ///プロパティ：ボーレート
         @property uint baudRate()
         {
-            GetCommState(_handle, _dcb);
+            version(none) GetCommState(_handle, _dcb);
             return _dcb.BaudRate;
         }
         
@@ -115,8 +116,115 @@ import win32.all : DCB, CreateFile, GetCommState, CBR_9600, NOPARITY, ONESTOPBIT
             enforce(SetCommState(_handle, _dcb));
         }
         
+        
+        ///タイムアウトの設定
+        template _Timeout()
+        {
+            enum Read : ubyte
+            {
+                interval    = 0x1,
+                multiplier  = 0x2,
+                constant    = 0x4,
+                all         = 0x7,
+            }
+            
+            enum Write : ubyte
+            {
+                multiplier  = 0x8,
+                constant    = 0x10,
+                all         = 0x18,
+            }
+            
+            enum ubyte all      = 0x1F;
+        }
+        
+        alias _Timeout!() Timeout;
+        
+        ///プロパティ：タイムアウト
+        @property
+        void timeout(ubyte spec = Timeout.all)(Duration value)
+        {
+            string genCode()
+            {
+                string dst;
+                foreach(e; __traits(allMembers, Timeout.Read))
+                    if(spec & __traits(getMember, Timeout.Read, e)){
+                        if(e == "all")
+                            continue;
+                        
+                        char[] t = e.dup;
+                        
+                        t[0..1].toUpperInPlace();
+                        dst ~= "_cto.Read" ~ ((__traits(getMember, Timeout.Read, e) == Timeout.Read.interval) ? "" : "TotalTimeout") 
+                                 ~ t.idup 
+                                 ~ ((__traits(getMember, Timeout.Read, e) == Timeout.Read.interval) ? "Timeout" : "") ~ ` = cast(uint)value.total!"msecs"();
+                                 `;
+                    }
+                
+                foreach(e; __traits(allMembers, Timeout.Write))
+                    if(spec & __traits(getMember, Timeout.Write, e)){
+                        if(e == "all")
+                            continue;
+                   
+                        char[] t = e.dup;
+                        
+                        t[0..1].toUpperInPlace();
+                        dst ~= "_cto.WriteTotalTimeout"
+                                 ~ t.idup 
+                                 ~ ` = cast(uint)value.total!"msecs"();
+                                    `;
+                    }
+                
+                return dst;
+            }
+            
+            
+            GetCommTimeouts(_handle, _cto);
+            
+            mixin(genCode());
+            
+            SetCommTimeouts(_handle, _cto);
+        }
+        
+        unittest
+        {
+            pragma(msg, typeof(timeout()));
+        }
+        
+        
+        ///ditto
+        @property Duration timeout(ubyte spec = Timeout.Read.constant)()
+        {
+            GetCommTimeouts(_handle, _cto);
+            
+            final switch(spec)
+            {
+                case Timeout.Read.interval:
+                    return dur!"msecs"(_cto.ReadIntervalTimeout);
+                    break;
+                
+                case Timeout.Read.multiplier:
+                    return dur!"msecs"(_cto.ReadTotalTimeoutMultiplier);
+                    break;
+                
+                case Timeout.Read.constant:
+                    return dur!"msecs"(_cto.ReadTotalTimeoutConstant);
+                    break;
+                
+                case Timeout.Write.multiplier:
+                    return dur!"msecs"(_cto.WriteTotalTimeoutMultiplier);
+                    break;
+                
+                case Timeout.Write.constant:
+                    return dur!"msecs"(_cto.WriteTotalTimeoutConstant);
+                    break;
+            }
+            
+            assert(0, "Failed get timeout");
+        }
     }
-    
+        
+        
     import std.typecons;
     return RefCounted!SerialPort(name);
 }
