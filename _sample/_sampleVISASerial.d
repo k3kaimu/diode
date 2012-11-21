@@ -13,7 +13,7 @@ void main(){
     
     with(dev)
     {
-        timeOut = 10;   //10ms
+        timeout = 10;   //10ms
         dataBits = 8;
         baudRate = 9600;
         stopBits = Stop.one;

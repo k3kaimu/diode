@@ -13,7 +13,7 @@ pragma(lib, "win32");
 
 void main()
 {
-    auto dev = comPortOpen("COM6");
+    auto dev = SerialPort("COM6");
     
     with(dev){
         dev.baudRate = 9600;
