@@ -353,7 +353,7 @@ public:
 }
 
 
-
+//["Serial", "COM"] //UDA
 struct Serial
 {
     mixin DeviceCommon!();
@@ -470,9 +470,5 @@ unittest
     static assert(isDevice!Serial);
 }
 
-
-unittest{
-    static assert(isDevice!GPIBDevice);
-}
 
 
