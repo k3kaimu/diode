@@ -3,30 +3,40 @@
  */
 module diode.windows;
 
+version(Windows)
+{
+
 import std.algorithm            : swap;
 import std.conv                 : to;
 import std.c.windows.windows;
 import std.exception            : enforce;
 import std.string               : toStringz, toUpperInPlace;
+import std.typecons             : RefCounted;
 
-import core.time;
-//import std.c.windows.windows;
-import win32.all : DCB, CreateFile, GetCommState, CBR_9600, NOPARITY, ONESTOPBIT, COMMTIMEOUTS, SetCommState, GetCommTimeouts, SetCommTimeouts;
+public import core.time;
+import std.c.windows.windows;
 
+import dio.core                 : isDevice;
 //["Serial", "COM"] //UDA
+
+///ditto
+RefCounted!SerialPort serialPortOpen(string name)
+{
+    return RefCounted!SerialPort(name);
+}
+
+
+///ditto
 struct SerialPort
 {
 private:
     HANDLE  _handle;
     DCB*     _dcb;
     COMMTIMEOUTS* _cto;
-    size_t* _pRefCounted;
 
 public:
     this(string name)
     {
-        _pRefCounted = new size_t;
-        *_pRefCounted = 1;
         _dcb = new DCB;
         _handle = CreateFile(   name.toStringz(),
                                 GENERIC_READ | GENERIC_WRITE,
@@ -70,33 +80,14 @@ public:
     }
     
     
-    this(this)
-    {
-        ++(*_pRefCounted);
-    }
-    
-    
-    ~this()
-    {
-        if(_pRefCounted)
-            if(--(*_pRefCounted) == 0)
-                CloseHandle(_handle);
-    }
-    
-    
-    void opAssign(typeof(this) rhs)
-    {
-        swap(this, rhs);
-    }
-    
-    
+    ///
     @property
     HANDLE handle()
     {
         return _handle;
     }
         
-            ///Sourceのpullの実装
+    ///Sourceのpullの実装
     bool pull(ref ubyte[] buf){
         DWORD cnt = void;
         
@@ -119,18 +110,37 @@ public:
     
     
     ///プロパティ：ボーレート
-    @property uint baudRate()
+    @property
+    uint baudRate()
     {
-        version(none) GetCommState(_handle, _dcb);
         return _dcb.BaudRate;
     }
     
     
     ///ditto
-    @property void baudRate(uint rate)
+    @property
+    void baudRate(uint rate)
     {
         _dcb.BaudRate = rate;
         enforce(SetCommState(_handle, _dcb));
+    }
+    
+    
+    ///ビット数の設定
+    @property
+    void dataBits(size_t value)
+    {
+        _dcb.ByteSize = cast(ubyte)value;
+        enforce(SetCommState(_handle, _dcb));
+    }
+    
+    
+    ///ditto
+    @property
+    ushort dataBits()
+    {
+        GetCommState(_handle, _dcb);
+        return _dcb.ByteSize;
     }
     
     
@@ -162,7 +172,8 @@ public:
     
     ///プロパティ：タイムアウト
     @property
-    void timeout(ubyte spec = Timeout.all)(Duration value)
+    void timeout(ubyte spec = Timeout.Read.interval | Timeout.Read.constant | Timeout.Write.constant)
+    (Duration value)
     {
         string genCode()
         {
@@ -208,7 +219,8 @@ public:
     
     
     ///ditto
-    @property Duration timeout(ubyte spec = Timeout.Read.constant)()
+    @property
+    Duration timeout(ubyte spec = Timeout.Read.constant)()
     {
         GetCommTimeouts(_handle, _cto);
         
@@ -237,4 +249,96 @@ public:
         
         assert(0, "Failed get timeout");
     }
+}
+
+unittest{
+    static assert(isDevice!SerialPort);
+    static assert(isDevice!(typeof(serialPortOpen("COM1"))));
+}
+
+
+private{
+    extern(Windows):
+    //Win32API
+    HANDLE CreateFileA(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+    alias CreateFileA CreateFile;
+    BOOL GetCommState(HANDLE, LPDCB);
+    BOOL SetCommState(HANDLE, LPDCB);
+    BOOL GetCommTimeouts(HANDLE, LPCOMMTIMEOUTS);
+    BOOL SetCommTimeouts(HANDLE, LPCOMMTIMEOUTS);
+
+    struct DCB {
+        DWORD DCBlength = DCB.sizeof;
+        DWORD BaudRate;
+
+        import std.bitmanip;
+
+        mixin(bitfields!(
+            uint, "fBinary", 1,
+            uint, "fParity", 1,
+            uint, "fOutxCtsFlow", 1,
+            uint, "fOutxDsrFlow", 1,
+            uint, "fDtrControl", 2,
+            uint, "fDsrSensitivity", 1,
+            uint, "fTXContinueOnXoff", 1,
+            uint, "fOutX", 1,
+            uint, "fInX", 1,
+            uint, "fErrorChar", 1,
+            uint, "fNull", 1,
+            uint, "fRtsControl", 2,
+            uint, "fAbortOnError", 1,
+            uint, "dDummy2", 17
+        ));
+
+        WORD wReserved;
+        WORD XonLim;
+        WORD XoffLim;
+        BYTE ByteSize;
+        BYTE Parity;
+        BYTE StopBits;
+        char XonChar;
+        char XoffChar;
+        char ErrorChar;
+        char EofChar;
+        char EvtChar;
+        WORD wReserved1;
+    }
+
+    alias DCB* LPDCB;
+
+    enum : BYTE {
+        NOPARITY = 0,
+        ODDPARITY,
+        EVENPARITY,
+        MARKPARITY,
+        SPACEPARITY
+    }
+
+    // DCB
+    enum : BYTE {
+        ONESTOPBIT = 0,
+        ONE5STOPBITS,
+        TWOSTOPBITS
+    }
+
+    struct COMMTIMEOUTS {
+        DWORD ReadIntervalTimeout;
+        DWORD ReadTotalTimeoutMultiplier;
+        DWORD ReadTotalTimeoutConstant;
+        DWORD WriteTotalTimeoutMultiplier;
+        DWORD WriteTotalTimeoutConstant;
+    }
+
+    alias COMMTIMEOUTS* LPCOMMTIMEOUTS;
+
+    struct SECURITY_ATTRIBUTES {
+        DWORD  nLength;
+        LPVOID lpSecurityDescriptor;
+        BOOL   bInheritHandle;
+    }
+
+    alias SECURITY_ATTRIBUTES* LPSECURITY_ATTRIBUTES;
+}
+
+
 }

@@ -9,7 +9,8 @@ import core.thread : Thread, dur;
 
 pragma(lib, "diode");
 pragma(lib, "dio");
-pragma(lib, "win32");
+
+import std.algorithm;
 
 void main()
 {
@@ -17,12 +18,20 @@ void main()
     
     with(dev){
         dev.baudRate = 9600;
-        dev.timeout = dur!"msecs"(100);
+        dev.timeout = dur!"msecs"(10);
     }
     
-    auto devRng = dev.buffered().ranged();
-    auto devPort = dev.buffered().textPort();
+    auto devBuffered = dev.buffered();
     
-    foreach(d; devRng)
-        writeln(d);
+    auto devRngUbyte = devBuffered.ranged();
+    {
+        while(!devRngUbyte.startsWith([0xFF, 0xFF]))
+            devRngUbyte.popFront();
+    }
+    
+    uint i;
+    foreach(d; devRngUbyte){
+        writeln(i%10, " : ", d);
+        ++i;
+    }
 }

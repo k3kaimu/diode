@@ -17,6 +17,8 @@ import std.algorithm: swap;
 import std.typecons : Tuple;
 import std.typetuple: staticMap, TypeTuple, NoDuplicates;
 
+public import core.time;
+
 import dio.core;
 
 version(unittest){
@@ -226,8 +228,6 @@ private{
             alias typeof(__traits(getMember, T, name)) getTypeUserTypeMember;
         }
     }
-    
-    
 }
 
 ///デフォルトのリソースマネージャです。実行時に最初に初期化されます。
@@ -310,8 +310,15 @@ public:
 }
 
 
-///デバイスを操作するための構造体です
-mixin template DeviceCommon(){
+enum RsrcClass
+{
+    SerialInstr,
+    GpibInstr,
+}
+
+
+///デバイスを操作するための構造体を定義する際に便利なテンプレートです
+mixin template DeviceCommon(RsrcClass rsrcClass){
 private:
     Session _session;
     
@@ -352,11 +359,13 @@ public:
     }
 }
 
-
+/**
+VISAライブラリのSerial INSTRを使ってシリアルポートを制御します。
+*/
 //["Serial", "COM"] //UDA
 struct Serial
 {
-    mixin DeviceCommon!();
+    mixin DeviceCommon!(RsrcClass.SerialInstr);
     
     mixin(genAttrTF("allowTransmit", "VI_ATTR_ASRL_ALLOW_TRANSMIT"));
     mixin(genAttrReadOnly!uint("availNum", "VI_ATTR_ASRL_AVAIL_NUM"));
@@ -459,7 +468,20 @@ struct Serial
     mixin(genAttrTF("suppressEndEn", "VI_ATTR_SUPPRESS_END_EN"));
     mixin(genAttr!char("termChar", "VI_ATTR_TERMCHAR"));
     mixin(genAttrTF("termCharEn", "VI_ATTR_TERMCHAR_EN"));
-    mixin(genAttr!uint("timeout", "VI_ATTR_TMO_VALUE"));    //0xFFFFFFFFでinfinite
+    mixin("private " ~ genAttr!uint("_timeout", "VI_ATTR_TMO_VALUE"));    //0xFFFFFFFFでinfinite
+
+    @property
+    void timeout(Duration time)
+    {
+        _timeout = cast(uint)time.total!"msecs"();
+    }
+
+
+    @property
+    Duration timeout()
+    {
+        return dur!"msecs"(_timeout);
+    }
     
     //mixin(genAttr!ViAddr("userData", "VI_ATTR_USER_DATA"));
     mixin(genAttr!ushort("wrBufOpMode", "VI_ATTR_WR_BUF_OPER_MODE"));
@@ -469,6 +491,19 @@ unittest
 {
     static assert(isDevice!Serial);
 }
+
+
+/**
+VISAライブラリのGPIB INSTRを使ってシリアルポートを制御します。
+*/
+struct Gpib
+{
+    mixin DeviceCommon!(RsrcClass.GpibInstr);
+}
+
+
+///ditto
+alias Gpib GPIB;
 
 
 
