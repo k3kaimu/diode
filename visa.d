@@ -1,7 +1,7 @@
 ﻿/**
- * VISAのライブラリ。
- * VISAライブラリなので計測器などとの通信前提。
- * ただしSerial(COMPortとか)は、手持ちのマイコンでも動作確認済み。
+VISAのライブラリ。
+VISAライブラリなので計測器などとの通信前提。
+ただしSerial(COMPortとか)は、手持ちのマイコンでも動作確認済み。
  */
 module diode.visa;
 
@@ -14,7 +14,7 @@ import std.variant  : Variant;
 import std.array    : strip, split;
 import std.conv     : to;
 import std.algorithm: swap;
-import std.typecons : Tuple;
+import std.typecons : Tuple, RefCounted;
 import std.typetuple: staticMap, TypeTuple, NoDuplicates;
 
 public import core.time;
@@ -30,52 +30,14 @@ version(unittest){
 
 
 private{
-    private template staticFilter(alias F, T...){
-        static if(T.length){
-            static if(F!(T[0]))
-                alias TypeTuple!(T, staticFilter!(F, T[1..$])) staticFilter;
-            else
-                alias staticFilter!(F, T[1..$]) staticFilter;
-        }else
-            alias TypeTuple!() staticFilter;
-    }
-
-
-    private template isStatic(alias v){
-        static if(is(typeof({enum value = v;})))
-            enum isStatic = true;
-        else
-            enum isStatic = false;
-    }
-    unittest{
-        struct S{
-            enum a = 12;
-        }
-        
-        static assert(staticFilter!(isStatic, staticMap!(getMember!(S), __traits(allMembers, S))).length == 1);
-    }
-    
-    private template eval(alias f){
-        alias f eval;
-    }
-    
-    private template getMember(alias v){
-        template getMember(string m){
-            alias eval!(__traits(getMember, v, m)) getMember;
-        }
-    }
-
-    
-    template isEnum(T)
-    {
+    template isEnum(T) {
         static if(is(typeof({enum e = __traits(getMember, T, __traits(allMembers, T)[0]);})))
             enum isEnum = NoDuplicates!(staticMap!(getTypeUserTypeMember!T, __traits(allMembers, T))).length == 1
                         && is(NoDuplicates!(staticMap!(getTypeUserTypeMember!T, __traits(allMembers, T)))[0] == T);
         else
             enum isEnum = false;
     }
-    unittest
-    {
+    unittest {
         enum A
         {
             a,
@@ -95,22 +57,7 @@ private{
         }
         static assert(!isEnum!S);
     }
-  
-    
-  version(none){
-    E to(E, N)(N value)
-    if( isEnum!E && 
-        is(typeof(__traits(getMember, E, __traits(allMembers, E)[0])) : N))
-    {
-        foreach(e;  __traits(allMembers, E))
-        {
-            if(__traits(getMember, E, e) == value)
-                return __traits(getMember, E, e);
-        }
-        assert(0);
-    }
-  }
-  
+
     
     string genAttrReadOnly(T)(string name, string val, string unitTest = ""){
         return 
@@ -264,11 +211,23 @@ enum Lock : ViAccessMode
 }
 
 
+enum RsrcClass
+{
+    SerialInstr,
+    GpibInstr,
+}
+
+
 ///ViSessionを管理する構造体です。各デバイスはこのSessionを内部に持つことになります。参照カウンタ方式により管理しています。
+RefCounted!Session openSession(string address)
+{
+    return RefCounted!Session(address);
+}
+
+///ditto
 struct Session{
 private:
     ViSession _instr;
-    size_t* _pRefCountor;
 
 public:
     ///addressを指定してデバイスを開きます
@@ -276,29 +235,12 @@ public:
     {
         auto stat = viOpen(defaultRM, cast(char*)(address.toStringz), VI_NULL, VI_NULL, &_instr);
         assert(stat >= VI_SUCCESS, "couldn't open " ~ address);
-        
-        _pRefCountor = new size_t;
-        *_pRefCountor = 1;
-    }
-    
-    
-    this(this)
-    {
-        ++(*_pRefCountor);
     }
     
     
     ~this()
     {
-        if(_pRefCountor)
-            if(--(*_pRefCountor) == 0)
-                viClose(_instr);
-    }
-    
-    
-    void opAssign(typeof(this) rhs)
-    {
-        swap(this, rhs);
+        viClose(_instr);
     }
     
     
@@ -310,22 +252,15 @@ public:
 }
 
 
-enum RsrcClass
-{
-    SerialInstr,
-    GpibInstr,
-}
-
-
 ///デバイスを操作するための構造体を定義する際に便利なテンプレートです
 mixin template DeviceCommon(RsrcClass rsrcClass){
 private:
-    Session _session;
+    RefCounted!Session _session;
     
 public:
     ///コンストラクタ
     this(string address){
-        _session = Session(address);
+        _session = openSession(address);
     }
     
     
@@ -358,6 +293,7 @@ public:
         return cnt > 0;
     }
 }
+
 
 /**
 VISAライブラリのSerial INSTRを使ってシリアルポートを制御します。
@@ -500,10 +436,3 @@ struct Gpib
 {
     mixin DeviceCommon!(RsrcClass.GpibInstr);
 }
-
-
-///ditto
-alias Gpib GPIB;
-
-
-
