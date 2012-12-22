@@ -2,6 +2,12 @@ module diode.core;
 
 import dio.core;
 
+version(unittest){
+    pragma(lib, "dio");
+    pragma(lib, "diode");
+    void main(){}
+}
+
 
 /**
 Tmpがエンコーダかどうか調べます。
@@ -66,32 +72,33 @@ unittest{
 
 /**
 単純なBase64のエンコーダとデコーダです。CRLF又はLFのみを区切りだと判断します。
+ubyte[]をエンコードしてcharを出力。
 */
-template Base64CoderImpl(char Map62th,char Map63th,char Padding = '=')
+template Base64CoderImpl(char Map62th, char Map63th, char Padding = '=')
 {
     import std.base64;
     alias Base64Impl!(Map62th, Map63th, Padding).encode encode;
     alias Base64Impl!(Map62th, Map63th, Padding).decode decode;
 
-    size_t slice(ref inout(ubyte)[] input){
-        size_t n;
+    size_t slice(ref inout(char)[] input){
+        size_t idx;
+        size_t ret;
+
         foreach(i, e; input){
-            if(!isBase64Char(cast(char)e))
-                ++n;
+            if(!isBase64Char(e))
+                ++ret;
+            else
+                break;
         }
 
-        size_t idx;
-        foreach(i, e; input[n .. $])
-            if(e == '\n'){
-                idx = i;
+        foreach(e; input[ret .. $])
+            if(isBase64Char(e))
+                ++idx;
+            else
                 break;
-            }
 
-        if(idx == 0)
-            input = input[n .. n];
-        else
-            input = input[n .. n + idx - 1];
-        return n;
+        input = input[ret .. idx + ret];
+        return ret;
     }
 
     bool isBase64Char(char c){
@@ -107,6 +114,11 @@ template Base64CoderImpl(char Map62th,char Map63th,char Padding = '=')
 
 ///ditto
 alias Base64CoderImpl!('+', '/') Base64Coder;
+
+unittest{
+    static assert(isDecoder!(Base64Coder, char[]));
+    static assert(isEncoder!Base64Coder);
+}
 
 
 /**
@@ -190,23 +202,24 @@ if((isBufferedSource!Dev && isDecoder!(Coder, DeviceElementType!Dev[]))
 
 
         void popFront(){
+            import std.stdio;
             typeof(dev.available) input;
             size_t n;
             bool b;
             
-            while(dev.fetch()){
+            do{
                 input = dev.available;
                 n = Coder.slice(input);
-
+                dev.consume(n);
+                
                 if(input.length != 0)
                     goto NEXTSTAGE;
-            }
-            
+            }while(dev.available.length || dev.fetch());
+
             _empty = true;
             return;
 
         NEXTSTAGE:
-            dev.consume(n);
             _front = Coder.decode(input);
             dev.consume(input.length);
         }
@@ -224,6 +237,13 @@ if((isBufferedSource!Dev && isDecoder!(Coder, DeviceElementType!Dev[]))
                 throw new Exception("");
         }
       }
+
+      static if(is(typeof({Dev.init.flush();})))
+      {
+        bool flush(){
+            return dev.flush();
+        }
+      }
     }
 
     return Coded(d);
@@ -232,84 +252,117 @@ if((isBufferedSource!Dev && isDecoder!(Coder, DeviceElementType!Dev[]))
 unittest{
     import dio.file;
     import dio.core;
-    import std.algorithm : equal;
-
-    struct LnReverseDecoder{
-        static size_t slice(ref inout(ubyte)[] input){
-            size_t idx;
-            foreach(i, e; input)
-                if(e == '\n'){
-                    idx = i;
-                    break;
-                }
-
-            import std.string;
-            input = cast(inout(ubyte)[])chomp(cast(char[])input[0 .. idx+1]);
-            return 0;
-        }
-
-        static auto decode(inout(ubyte)[] input){return input.dup.reverse;}
-    }
-
-    auto file = buffered(File(__FILE__));
-    auto cd = file.coded!LnReverseDecoder;
-
-    assert(equal(cast(char[])cd.front, "module diode.encode;".dup.reverse));
-}
-
-unittest{
     import std.algorithm;
     import std.range;
-    import dio.core;
+    import std.stdio : writeln;
 
-    struct ArraySink{
-        ubyte[] array;
-
-        bool push(ref const(ubyte)[] buf){array ~= buf; buf = buf[$ .. $]; return true;}
-
-        @property auto handle(){return array;}
-    }
-
-    static assert(isSink!ArraySink);
-
-    struct LnReverse{
-        static ubyte[] encode(U:ubyte)(inout(U)[] input){return input.dup.reverse;}
-        static ubyte[] encode(U)(inout(U)[] input){return encode(cast(inout(ubyte[]))input);}
-    }
-
-    auto cd = ArraySink.init.coded!LnReverse;
-
-    cd.put(cast(ubyte[])[0x1, 0x2, 0x3]);
-    assert(equal(cd.dev.array, cast(ubyte[])[0x3, 0x2, 0x1]));
-
-    cd.put([0x1]);
-    assert(equal(cd.dev.array, cast(ubyte[])[0x3, 0x2, 0x1, 0x0, 0x0, 0x0, 0x1]));
-}
-
-unittest{
-    import dio.file;
-    import dio.core;
-    import std.algorithm;
-    import std.stdio:writeln;
-
-    struct LnReverseDecoder{
+    struct LnReverser{
         static size_t slice(ref inout(ubyte)[] input){
             size_t idx;
-            foreach(i, e; input)
-                if(e == '\n'){
-                    idx = i;
-                    break;
-                }
+            size_t ret;
 
-            import std.string;
-            input = cast(inout(ubyte)[])chomp(cast(char[])input[0 .. idx+1]);
-            return 0;
+            foreach(i, e; input){
+                if(e == '\n' || e == '\r')
+                    ++ret;
+                else
+                    break;
+            }
+
+            foreach(e; input[ret .. $])
+                if(e != '\n' && e != '\r')
+                    ++idx;
+                else
+                    break;
+
+            input = input[ret .. idx + ret];
+            return ret;
+        }
+        unittest{
+            ubyte[] a = cast(ubyte[])"\n\r\n\rabcd\n".dup,
+                    b = a.dup;
+            auto sidx = slice(a);
+            assert(sidx == 4);
+            assert(a == b[4 .. $-1]);
+
+            a = cast(ubyte[])"\n\n\n\n\n\n".dup,
+            sidx = slice(a);
+            assert(sidx == 6);
+            assert(a == (ubyte[]).init);
         }
 
-        static auto decode(inout(ubyte)[] input){return cast(string)input;}
+        static ubyte[] decode(inout(ubyte)[] input){return input.dup.reverse;}
+
+        static ubyte[] encode(inout(ubyte)[] input){return input.dup.reverse;}
     }
 
-    auto file = buffered(File(__FILE__));
-    auto cd = file.coded!LnReverseDecoder;
-    assert(equal(cd.front, "module diode.encode;"));
+
+    struct ArrayDeviced{
+    private:
+        ubyte[]* _src;
+        ubyte[]* _sink;
+
+    public:
+        this(ubyte[]* src, ubyte[]* sink)
+        {
+            _src = src;
+            _sink = sink;
+        }
+
+
+        bool pull(ref ubyte[] buf){
+            size_t len = min(buf.length, (*_src).length);
+            buf[0..len][] = (*_src)[0..len][];
+            buf = buf[len .. $];
+            (*_src) = (*_src)[len .. $];
+
+            return len > 0;
+        }
+
+        bool push(ref const(ubyte)[] buf){
+            size_t len = buf.length;
+            (*_sink) ~= buf;
+            buf = buf[0 .. 0];
+
+            return len > 0;
+        }
+
+        auto handle(){return _src;}
+    }
+
+
+    {
+        auto file = buffered(File(__FILE__));
+        auto cd = file.coded!LnReverser;
+        assert(equal(cast(char[])cd.front, "module diode.core;".dup.reverse));
+    }
+
+    {
+        ubyte[] src = cast(ubyte[])"\nabc\ndef\nghi\njkl\nmno\npqr\nstu\n".dup;
+        ubyte[] sink = cast(ubyte[])"".dup;
+
+        auto dev = buffered(ArrayDeviced(&src, &sink));
+
+        auto cd = dev.coded!LnReverser;
+        auto check = map!"cast(ubyte[])(a.dup.reverse)"(["abc", "def", "ghi", "jkl", "mno", "pqr", "stu"]);
+        assert(equal(cd, check));
+    }
+
+    {
+        ubyte[] sink = cast(ubyte[])"".dup;
+
+        auto dev = buffered(ArrayDeviced(&sink, &sink));
+
+        auto cd = dev.coded!LnReverser;
+
+        put(cd, cast(ubyte[])("abc".dup));
+        put(cd, cast(ubyte[])("def".dup));
+        put(cd, cast(ubyte[])("ghi".dup));
+        cd.flush();
+
+        assert(cast(string)sink == "cbafedihg");
+    }
+
+    {
+        
+    }
 }
