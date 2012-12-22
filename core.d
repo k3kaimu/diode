@@ -71,28 +71,24 @@ unittest{
 
 
 /**
-単純なBase64のエンコーダとデコーダです。CRLF又はLFのみを区切りだと判断します。
-ubyte[]をエンコードしてcharを出力。
-*/
-template Base64CoderImpl(char Map62th, char Map63th, char Padding = '=')
-{
-    import std.base64;
-    alias Base64Impl!(Map62th, Map63th, Padding).encode encode;
-    alias Base64Impl!(Map62th, Map63th, Padding).decode decode;
+isValidがtrueとなる要素の連続した集合をsliceとします。
 
-    size_t slice(ref inout(char)[] input){
+*/
+template validElementsSlice(alias isValid)
+{
+    size_t validElementsSlice(T)(ref inout(T)[] input){
         size_t idx;
         size_t ret;
 
         foreach(i, e; input){
-            if(!isBase64Char(e))
+            if(!isValid(e))
                 ++ret;
             else
                 break;
         }
 
         foreach(e; input[ret .. $])
-            if(isBase64Char(e))
+            if(isValid(e))
                 ++idx;
             else
                 break;
@@ -100,6 +96,36 @@ template Base64CoderImpl(char Map62th, char Map63th, char Padding = '=')
         input = input[ret .. idx + ret];
         return ret;
     }
+}
+
+/**
+encoderとdecoderからcoderを作ります
+*/
+template PackedCoder(alias encoder, alias decoder)
+{
+    static if(isEncoder!encoder)
+        alias encoder.encode encode;
+    else
+        alias encoder encode;
+
+    alias decoder.decode decode;
+    alias decoder.slice slice;
+}
+
+
+/**
+sliceとdecodeからデコーダを作ります
+*/
+template PackedDecoder(alias slicef, alias decodef)
+{
+    alias decodef decode;
+    alias slicef slice;
+}
+
+
+template Base64CoderImpl(char Map62th, char Map63th, char Padding = '=')
+{
+    import std.base64;
 
     bool isBase64Char(char c){
         if(('0' <= c && c <= '9')
@@ -110,7 +136,10 @@ template Base64CoderImpl(char Map62th, char Map63th, char Padding = '=')
         else
             return false;
     }
+
+    alias PackedCoder!(Base64Impl!(Map62th, Map63th).encode, PackedDecoder!(validElementsSlice!isBase64Char, Base64Impl!(Map62th, Map63th).decode)) Base64CoderImpl;
 }
+
 
 ///ditto
 alias Base64CoderImpl!('+', '/') Base64Coder;
@@ -363,6 +392,6 @@ unittest{
     }
 
     {
-        
+
     }
 }
