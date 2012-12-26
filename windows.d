@@ -17,17 +17,10 @@ public import core.time;
 import std.c.windows.windows;
 
 import dio.core                 : isDevice;
-//["Serial", "COM"] //UDA
-
-///ditto
-RefCounted!SerialPort serialPortOpen(string name)
-{
-    return RefCounted!SerialPort(name);
-}
 
 
-///ditto
-struct SerialPort
+///Windows APIを使ってIOを叩く。
+struct Serial
 {
 private:
     HANDLE  _handle;
@@ -80,6 +73,13 @@ public:
     }
     
     
+    static
+    auto open(string name)
+    {
+        return RefCounted!Serial(name);
+    }
+
+
     ///
     @property
     HANDLE handle()
@@ -252,8 +252,8 @@ public:
 }
 
 unittest{
-    static assert(isDevice!SerialPort);
-    static assert(isDevice!(typeof(serialPortOpen("COM1"))));
+    static assert(isDevice!Serial);
+    static assert(isDevice!(typeof(Serial.open("COM1"))));
 }
 
 

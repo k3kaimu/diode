@@ -72,7 +72,6 @@ unittest{
 
 /**
 isValidがtrueとなる要素の連続した集合をsliceとします。
-
 */
 template validElementsSlice(alias isValid)
 {
@@ -94,6 +93,19 @@ template validElementsSlice(alias isValid)
                 break;
 
         input = input[ret .. idx + ret];
+        return ret;
+    }
+}
+
+
+/**
+startとendを判定するpredによってsliceを作ります
+*/
+template sliceWithStartEnd(alias beginSlice, alias endSlice){
+    size_t sliceWithStartEnd(T)(ref inout(T)[] input){
+        size_t ret = beginSlice(input);
+        endSlice(input);
+
         return ret;
     }
 }
@@ -184,17 +196,17 @@ NEXTSTAGE:
 bufferedなものを符号化、復号化します。
 また、range化してしまいます。
 */
-template Coded(alias Coder, Dev)
+template Coded(alias Codec, Dev)
 {
-    alias typeof((Dev* d = null){ return (*d).coded!Coder; }()) Coded;
+    alias typeof((Dev* d = null){ return (*d).coded!Codec; }()) Coded;
 }
 
 
 ///ditto
 @property
-auto coded(alias Coder, Dev)(Dev d)
-if((isBufferedSource!Dev && isDecoder!(Coder, DeviceElementType!Dev[]))
-|| (isSink!Dev && isEncoder!(Coder)) )
+auto coded(alias Codec, Dev)(Dev d)
+if((isBufferedSource!Dev && isDecoder!(Codec, DeviceElementType!Dev[]))
+|| (isSink!Dev && isEncoder!(Codec)) )
 {
     struct Coded{
     private:
@@ -202,7 +214,7 @@ if((isBufferedSource!Dev && isDecoder!(Coder, DeviceElementType!Dev[]))
 
       static if(isBufferedSource!Dev){
         alias DeviceElementType!Dev E;
-        alias typeof(Coder.decode((E[]).init)) FrontType;
+        alias typeof(Codec.decode((E[]).init)) FrontType;
         FrontType _front;
         bool _empty;
       }
@@ -238,7 +250,7 @@ if((isBufferedSource!Dev && isDecoder!(Coder, DeviceElementType!Dev[]))
             
             do{
                 input = dev.available;
-                n = Coder.slice(input);
+                n = Codec.slice(input);
                 dev.consume(n);
                 
                 if(input.length != 0)
@@ -249,7 +261,7 @@ if((isBufferedSource!Dev && isDecoder!(Coder, DeviceElementType!Dev[]))
             return;
 
         NEXTSTAGE:
-            _front = Coder.decode(input);
+            _front = Codec.decode(input);
             dev.consume(input.length);
         }
       }
@@ -258,8 +270,8 @@ if((isBufferedSource!Dev && isDecoder!(Coder, DeviceElementType!Dev[]))
       {
         void put(U)(const(U)[] input){
             import std.range;
-            alias ElementType!(typeof(Coder.encode(input))) EE;
-            const(EE)[] encoded = Coder.encode(input);
+            alias ElementType!(typeof(Codec.encode(input))) EE;
+            const(EE)[] encoded = Codec.encode(input);
 
             while(dev.push(encoded) && encoded.length){}
             if(encoded.length)
@@ -390,8 +402,78 @@ unittest{
 
         assert(cast(string)sink == "cbafedihg");
     }
+}
 
-    {
+
+/**
+入力と出力両方をbufferedなものにします。
+*/
+auto doubleBuffered(Dev)(Dev d) if(isDevice!Dev)
+{
+    struct DoubleBuffered{
+    private:
+        typeof(Dev.init.sourced.buffered) _src;
+        typeof(Dev.init.sinked.buffered) _sink;
+
+        alias DeviceElementType!Dev E;
+
+    public:
+        this(Dev d){
+            _src = d.sourced.buffered;
+            _sink = d.sinked.buffered;
+        }
+
+        ///source
+        bool pull(ref E[] buf){
+            return _src.pull(buf);
+        }
+
+
+        ///buffered source
+        bool fetch(){
+            return _src.fetch();
+        }
+
+
+        ///ditto
+        @property
+        const(E)[] available(){
+            return _src.available;
+        }
+
+
+        ///ditto
+        void consume(size_t n){
+            _src.consume(n);
+        }
+
+
+        ///sink
+        bool push(ref const(E)[] buf){
+            return _sink.push(buf);
+        }
+
+
+        ///buffered sink
+        bool flush(){
+            return _sink.flush();
+        }
+
+
+        ///ditto
+        @property
+        E[] writable(){
+            return _sink.writable;
+        }
+
+
+        ///ditto
+        @property
+        bool commit(size_t n){
+            return _sink.commit(n);
+        }
 
     }
+
+    return DoubleBuffered(d);
 }
